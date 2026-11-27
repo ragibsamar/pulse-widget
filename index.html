@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https: data:; media-src * blob: file:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'">
+<title>Pulse</title>
+<style>
+:root{--a:#8b5cf6;--bg:#16171d;--panel:#1e2028;--text:#eceef4;--mute:#8c90a0;font-family:"Segoe UI Variable","Segoe UI",sans-serif}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%;overflow:hidden;background:transparent;color:var(--text)}
+button,input{font:inherit;color:inherit}
+button{background:none;border:0;cursor:pointer;border-radius:8px}
+button:focus-visible,input:focus-visible{outline:2px solid var(--a);outline-offset:2px}
+.card{height:100%;display:flex;flex-direction:column;background:linear-gradient(160deg,color-mix(in srgb,var(--a) 38%,var(--bg)),var(--bg) 70%);border-radius:18px;border:1px solid #ffffff14;transition:background .5s}
+.bar{display:flex;justify-content:flex-end;gap:2px;padding:6px 8px 0;-webkit-app-region:drag}
+.bar button{-webkit-app-region:no-drag;width:28px;height:22px;color:var(--mute);font-size:13px}
+.bar button:hover{color:var(--text);background:#ffffff14}
+.now{display:flex;gap:12px;align-items:center;padding:4px 14px 0}
+.art{width:56px;height:56px;border-radius:10px;background:var(--a) center/cover;flex:none;transition:all .35s}
+.meta{min-width:0;flex:1}
+.meta b{display:block;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meta span{font-size:12px;color:var(--mute)}
+.ctl{display:flex;align-items:center;gap:2px}
+.ctl button{width:34px;height:34px;font-size:16px}
+.ctl .play{background:var(--a);width:40px;height:40px;border-radius:50%;margin:0 4px}
+.seek{display:flex;align-items:center;gap:8px;padding:8px 14px 10px;font-size:11px;color:var(--mute);font-variant-numeric:tabular-nums}
+canvas{flex:1;height:34px;cursor:pointer}
+.full{display:flex;flex-direction:column;flex:1;min-height:0;padding:0 14px 14px}
+.mini .full{display:none}
+.tabs{display:flex;gap:6px;margin-bottom:8px}
+.tabs button{padding:6px 12px;font-size:13px;color:var(--mute)}
+.tabs button.on{background:#ffffff1a;color:var(--text)}
+.search{display:flex;gap:6px;margin-bottom:8px}
+.search input{flex:1;background:var(--panel);border:1px solid #ffffff14;border-radius:10px;padding:8px 12px}
+.search button{background:var(--a);padding:0 14px}
+.list{flex:1;overflow-y:auto;scrollbar-width:thin}
+.row{display:flex;gap:10px;align-items:center;padding:6px;border-radius:10px;cursor:pointer}
+.row:hover{background:#ffffff0f}.row.cur{background:#ffffff1a}
+.row img,.row i{width:38px;height:38px;border-radius:7px;object-fit:cover;background:var(--panel);flex:none}
+.row div{min-width:0;flex:1}.row b{display:block;font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row small{font-size:11px;color:var(--mute)}
+.empty{color:var(--mute);font-size:13px;padding:24px 8px;text-align:center;line-height:1.5}
+</style></head>
+<body>
+<div class="card" id="card">
+  <div class="bar">
+    <button id="pin" title="Always on top">📌</button>
+    <button id="mode" title="Mini / full">▾</button>
+    <button id="min" title="Minimize">–</button>
+    <button id="close" title="Close">✕</button>
+  </div>
+  <div class="now">
+    <div class="art" id="art"></div>
+    <div class="meta"><b id="title">Nothing playing</b><span id="artist">Add files or search below</span></div>
+    <div class="ctl">
+      <button id="prev" title="Previous">⏮</button>
+      <button id="play" class="play" title="Play / pause">▶</button>
+      <button id="next" title="Next">⏭</button>
+    </div>
+  </div>
+  <div class="seek"><span id="cur">0:00</span><canvas id="wave" width="560" height="68"></canvas><span id="dur">0:00</span></div>
+  <div class="full">
+    <div class="tabs"><button id="tq" class="on">Queue</button><button id="ts">Search</button></div>
+    <div class="search" id="sbox" hidden><input id="q" placeholder="Search YouTube"><button id="go">Search</button></div>
+    <div class="search" id="abox"><button id="add" style="background:#ffffff1a;padding:8px 14px;flex:1">Add local files</button></div>
+    <div class="list" id="list"></div>
+  </div>
+</div>
+<script>
+const $=id=>document.getElementById(id), audio=new Audio();
+let queue=[], idx=-1, view='queue', results=[], peaks=[], loading=false;
+const fmt=s=>isFinite(s)&&s>0?Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0'):'0:00';
+const hue=t=>{let h=0;for(const c of t)h=(h*31+c.charCodeAt(0))%360;return h};
+
+function seeded(t){let s=hue(t)+t.length*7919;return Array.from({length:70},(_,i)=>{s=(s*9301+49297)%233280;return .25+.75*Math.abs(Math.sin(i/5+s/233280*4))*(s/233280*.6+.4)})}
+function drawWave(){
+  const c=$('wave'),g=c.getContext('2d'),n=peaks.length||70,w=c.width/n,p=audio.duration?audio.currentTime/audio.duration:0,
+  a=getComputedStyle(document.documentElement).getPropertyValue('--a');
+  g.clearRect(0,0,c.width,c.height);
+  for(let i=0;i<n;i++){const h=(peaks[i]||.15)*c.height;g.fillStyle=i/n<p?a:'#ffffff33';g.fillRect(i*w+1,(c.height-h)/2,w-3,h)}
+}
+function setTheme(t){document.documentElement.style.setProperty('--a',`hsl(${hue(t)} 70% 60%)`)}
+
+async function playAt(i){
+  if(i<0||i>=queue.length||loading)return; idx=i; const it=queue[i]; loading=true;
+  $('title').textContent=it.title;$('artist').textContent=it.type==='yt'?it.artist+' · loading…':it.artist;
+  $('art').style.backgroundImage=it.thumb?`url(${it.thumb})`:'';
+  setTheme(it.title);peaks=seeded(it.title);render();
+  try{
+    audio.src=it.type==='yt'?await api.ytStream(it.id):it.src;
+    await audio.play();$('artist').textContent=it.artist;
+  }catch(e){$('artist').textContent=e.message||'Could not play this track'}
+  loading=false;drawWave();
+}
+const next=()=>queue.length&&playAt((idx+1)%queue.length), prev=()=>audio.currentTime>3?audio.currentTime=0:queue.length&&playAt((idx-1+queue.length)%queue.length);
+$('play').onclick=()=>audio.src?(audio.paused?audio.play():audio.pause()):queue.length&&playAt(0);
+$('next').onclick=next;$('prev').onclick=prev;
+audio.onplay=()=>$('play').textContent='⏸';audio.onpause=()=>$('play').textContent='▶';
+audio.onended=next;audio.onerror=()=>{loading=false};
+audio.ontimeupdate=()=>{$('cur').textContent=fmt(audio.currentTime);$('dur').textContent=fmt(audio.duration);drawWave()};
+$('wave').onclick=e=>{if(!audio.duration)return;const r=e.target.getBoundingClientRect();audio.currentTime=(e.clientX-r.left)/r.width*audio.duration};
+
+function render(){
+  const L=$('list'),items=view==='queue'?queue:results;
+  if(!items.length){L.innerHTML=`<div class="empty">${view==='queue'?'Your queue is empty.<br>Add local files or search YouTube.':'Type a song or artist and press Enter.'}</div>`;return}
+  L.innerHTML='';
+  items.forEach((it,i)=>{
+    const r=document.createElement('div');r.className='row'+(view==='queue'&&i===idx?' cur':'');
+    r.innerHTML=(it.thumb?`<img src="${it.thumb}" alt="">`:'<i></i>')+'<div><b></b><small></small></div>';
+    r.querySelector('b').textContent=it.title;r.querySelector('small').textContent=it.artist+(it.dur?' · '+fmt(it.dur):'');
+    r.onclick=()=>{if(view==='queue')playAt(i);else{queue.push(it);playAt(queue.length-1)}};
+    L.appendChild(r)});
+}
+function tab(v){view=v;$('tq').classList.toggle('on',v==='queue');$('ts').classList.toggle('on',v==='search');
+  $('sbox').hidden=v!=='search';$('abox').hidden=v!=='queue';render();if(v==='search')$('q').focus()}
+$('tq').onclick=()=>tab('queue');$('ts').onclick=()=>tab('search');
+$('add').onclick=async()=>{const f=await api.pickFiles();if(f.length){queue.push(...f);render();if(idx<0)playAt(0)}};
+async function search(){
+  const q=$('q').value.trim();if(!q)return;
+  $('list').innerHTML='<div class="empty">Searching…</div>';
+  try{results=await api.ytSearch(q);render()}catch(e){$('list').innerHTML='';const d=document.createElement('div');d.className='empty';d.textContent=e.message;$('list').appendChild(d)}
+}
+$('go').onclick=search;$('q').onkeydown=e=>e.key==='Enter'&&search();
+
+let isMini=false;
+$('mode').onclick=()=>{isMini=!isMini;$('card').classList.toggle('mini',isMini);$('mode').textContent=isMini?'▴':'▾';api.win(isMini?'mini':'full')};
+$('min').onclick=()=>api.win('min');$('close').onclick=()=>api.win('close');$('pin').onclick=()=>api.win('pin');
+document.onkeydown=e=>{if(e.target.tagName==='INPUT')return;if(e.code==='Space'){e.preventDefault();$('play').click()}if(e.code==='ArrowRight')audio.currentTime+=5;if(e.code==='ArrowLeft')audio.currentTime-=5};
+setTheme('pulse');peaks=seeded('pulse');drawWave();render();
+</script></body></html>

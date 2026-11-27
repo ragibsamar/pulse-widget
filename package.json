@@ -1,0 +1,8 @@
+{
+  "name": "pulse-widget",
+  "version": "0.1.0",
+  "description": "Compact music widget for Windows: local files + YouTube search via yt-dlp (learning project)",
+  "main": "main.js",
+  "scripts": { "start": "electron ." },
+  "devDependencies": { "electron": "^33.0.0" }
+}
